@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI tool to post tweets via Chrome CDP."""
+"""CLI tool to post tweets and interact with Twitter via Chrome CDP."""
 
 import argparse
 import sys
@@ -107,27 +107,279 @@ def post_tweet(text: str, reply_to: str | None = None, image: str | None = None)
             print(f"❌ 错误: {e}")
             return False
         finally:
-            pass  # 保持页面打开
+            page.close()
+
+
+def like_tweet(url: str) -> bool:
+    """Like a tweet."""
+    if not ensure_chrome_cdp():
+        return False
+
+    tweet_id = extract_tweet_id(url)
+    if not tweet_id:
+        print(f"❌ 无效的推文 URL: {url}")
+        return False
+
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.connect_over_cdp(CDP_URL)
+        except Exception as e:
+            print(f"❌ 无法连接 CDP ({CDP_URL}): {e}")
+            return False
+
+        context = browser.contexts[0]
+        page = context.new_page()
+
+        try:
+            print(f"📍 导航到推文页面...")
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector('[data-testid="like"]', timeout=30000)
+            time.sleep(1)
+
+            # 检查是否已点赞
+            like_btn = page.locator('[data-testid="like"]').first
+            unlike_btn = page.locator('[data-testid="unlike"]').first
+            
+            if unlike_btn.count() > 0:
+                print("⚠️ 这条推文已经点过赞了")
+                return True
+
+            print("❤️ 点赞中...")
+            like_btn.click()
+            time.sleep(1)
+
+            # 验证点赞成功
+            if page.locator('[data-testid="unlike"]').count() > 0:
+                print("✅ 点赞成功！")
+                return True
+            else:
+                print("❌ 点赞可能失败")
+                return False
+
+        except PlaywrightTimeout as e:
+            print(f"❌ 超时: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ 错误: {e}")
+            return False
+        finally:
+            page.close()
+
+
+def bookmark_tweet(url: str) -> bool:
+    """Bookmark a tweet."""
+    if not ensure_chrome_cdp():
+        return False
+
+    tweet_id = extract_tweet_id(url)
+    if not tweet_id:
+        print(f"❌ 无效的推文 URL: {url}")
+        return False
+
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.connect_over_cdp(CDP_URL)
+        except Exception as e:
+            print(f"❌ 无法连接 CDP ({CDP_URL}): {e}")
+            return False
+
+        context = browser.contexts[0]
+        page = context.new_page()
+
+        try:
+            print(f"📍 导航到推文页面...")
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector('[data-testid="bookmark"]', timeout=30000)
+            time.sleep(1)
+
+            # 检查是否已收藏
+            bookmark_btn = page.locator('[data-testid="bookmark"]').first
+            unbookmark_btn = page.locator('[data-testid="removeBookmark"]').first
+            
+            if unbookmark_btn.count() > 0:
+                print("⚠️ 这条推文已经收藏过了")
+                return True
+
+            print("🔖 收藏中...")
+            bookmark_btn.click()
+            time.sleep(1)
+
+            # 验证收藏成功
+            if page.locator('[data-testid="removeBookmark"]').count() > 0:
+                print("✅ 收藏成功！")
+                return True
+            else:
+                print("❌ 收藏可能失败")
+                return False
+
+        except PlaywrightTimeout as e:
+            print(f"❌ 超时: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ 错误: {e}")
+            return False
+        finally:
+            page.close()
+
+
+def unlike_tweet(url: str) -> bool:
+    """Unlike a tweet."""
+    if not ensure_chrome_cdp():
+        return False
+
+    tweet_id = extract_tweet_id(url)
+    if not tweet_id:
+        print(f"❌ 无效的推文 URL: {url}")
+        return False
+
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.connect_over_cdp(CDP_URL)
+        except Exception as e:
+            print(f"❌ 无法连接 CDP ({CDP_URL}): {e}")
+            return False
+
+        context = browser.contexts[0]
+        page = context.new_page()
+
+        try:
+            print(f"📍 导航到推文页面...")
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            time.sleep(2)
+
+            # 检查是否已点赞
+            unlike_btn = page.locator('[data-testid="unlike"]').first
+            
+            if unlike_btn.count() == 0:
+                print("⚠️ 这条推文没有点过赞")
+                return True
+
+            print("💔 取消点赞中...")
+            unlike_btn.click()
+            time.sleep(1)
+
+            print("✅ 取消点赞成功！")
+            return True
+
+        except PlaywrightTimeout as e:
+            print(f"❌ 超时: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ 错误: {e}")
+            return False
+        finally:
+            page.close()
+
+
+def unbookmark_tweet(url: str) -> bool:
+    """Remove bookmark from a tweet."""
+    if not ensure_chrome_cdp():
+        return False
+
+    tweet_id = extract_tweet_id(url)
+    if not tweet_id:
+        print(f"❌ 无效的推文 URL: {url}")
+        return False
+
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.connect_over_cdp(CDP_URL)
+        except Exception as e:
+            print(f"❌ 无法连接 CDP ({CDP_URL}): {e}")
+            return False
+
+        context = browser.contexts[0]
+        page = context.new_page()
+
+        try:
+            print(f"📍 导航到推文页面...")
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            time.sleep(2)
+
+            # 检查是否已收藏
+            unbookmark_btn = page.locator('[data-testid="removeBookmark"]').first
+            
+            if unbookmark_btn.count() == 0:
+                print("⚠️ 这条推文没有收藏过")
+                return True
+
+            print("🗑️ 取消收藏中...")
+            unbookmark_btn.click()
+            time.sleep(1)
+
+            print("✅ 取消收藏成功！")
+            return True
+
+        except PlaywrightTimeout as e:
+            print(f"❌ 超时: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ 错误: {e}")
+            return False
+        finally:
+            page.close()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="发推文 CLI 工具",
+        description="Twitter CLI 工具 - 发推/点赞/收藏",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
   twpost "Hello World!"                          # 发新推文
   twpost --reply URL "回复内容"                  # 回复推文
   twpost --image photo.jpg "带图推文"            # 带图片
-  twpost --reply URL --image pic.png "带图回复"  # 带图回复
+  twpost like URL                                # 点赞推文
+  twpost unlike URL                              # 取消点赞
+  twpost bookmark URL                            # 收藏推文
+  twpost unbookmark URL                          # 取消收藏
         """,
     )
-    parser.add_argument("text", help="推文内容")
+    
+    subparsers = parser.add_subparsers(dest="command", help="子命令")
+    
+    # like 子命令
+    like_parser = subparsers.add_parser("like", help="点赞推文")
+    like_parser.add_argument("url", help="推文 URL")
+    
+    # unlike 子命令
+    unlike_parser = subparsers.add_parser("unlike", help="取消点赞")
+    unlike_parser.add_argument("url", help="推文 URL")
+    
+    # bookmark 子命令
+    bookmark_parser = subparsers.add_parser("bookmark", help="收藏推文")
+    bookmark_parser.add_argument("url", help="推文 URL")
+    
+    # unbookmark 子命令
+    unbookmark_parser = subparsers.add_parser("unbookmark", help="取消收藏")
+    unbookmark_parser.add_argument("url", help="推文 URL")
+    
+    # 发推文参数（默认行为）
+    parser.add_argument("text", nargs="?", help="推文内容")
     parser.add_argument("-r", "--reply", metavar="URL", help="要回复的推文 URL")
     parser.add_argument("-i", "--image", metavar="FILE", help="要附加的图片")
 
     args = parser.parse_args()
 
+    # 处理子命令
+    if args.command == "like":
+        success = like_tweet(args.url)
+        sys.exit(0 if success else 1)
+    elif args.command == "unlike":
+        success = unlike_tweet(args.url)
+        sys.exit(0 if success else 1)
+    elif args.command == "bookmark":
+        success = bookmark_tweet(args.url)
+        sys.exit(0 if success else 1)
+    elif args.command == "unbookmark":
+        success = unbookmark_tweet(args.url)
+        sys.exit(0 if success else 1)
+    
+    # 默认：发推文
+    if not args.text:
+        parser.print_help()
+        sys.exit(1)
+        
     if not args.text.strip():
         print("❌ 推文内容不能为空")
         sys.exit(1)
