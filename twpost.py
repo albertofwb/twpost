@@ -105,6 +105,28 @@ def post_tweet(text: str, reply_to: str | None = None, image: str | None = None)
 
 
 def main():
+    # 子命令列表
+    subcommands = {"like", "unlike", "bookmark", "unbookmark"}
+    
+    # 检查是否是子命令模式
+    if len(sys.argv) > 1 and sys.argv[1] in subcommands:
+        cmd = sys.argv[1]
+        if len(sys.argv) < 3:
+            print(f"❌ {cmd} 需要 URL 参数")
+            sys.exit(1)
+        url = sys.argv[2]
+        
+        if cmd == "like":
+            success = like_tweet(url)
+        elif cmd == "unlike":
+            success = unlike_tweet(url)
+        elif cmd == "bookmark":
+            success = bookmark_tweet(url)
+        elif cmd == "unbookmark":
+            success = unbookmark_tweet(url)
+        sys.exit(0 if success else 1)
+    
+    # 发推文模式
     parser = argparse.ArgumentParser(
         description="Twitter CLI 工具 - 发推/点赞/收藏",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -120,46 +142,12 @@ def main():
         """,
     )
     
-    subparsers = parser.add_subparsers(dest="command", help="子命令")
-    
-    # like 子命令
-    like_parser = subparsers.add_parser("like", help="点赞推文")
-    like_parser.add_argument("url", help="推文 URL")
-    
-    # unlike 子命令
-    unlike_parser = subparsers.add_parser("unlike", help="取消点赞")
-    unlike_parser.add_argument("url", help="推文 URL")
-    
-    # bookmark 子命令
-    bookmark_parser = subparsers.add_parser("bookmark", help="收藏推文")
-    bookmark_parser.add_argument("url", help="推文 URL")
-    
-    # unbookmark 子命令
-    unbookmark_parser = subparsers.add_parser("unbookmark", help="取消收藏")
-    unbookmark_parser.add_argument("url", help="推文 URL")
-    
-    # 发推文参数（默认行为）
     parser.add_argument("text", nargs="?", help="推文内容")
     parser.add_argument("-r", "--reply", metavar="URL", help="要回复的推文 URL")
     parser.add_argument("-i", "--image", metavar="FILE", help="要附加的图片")
 
     args = parser.parse_args()
-
-    # 处理子命令
-    if args.command == "like":
-        success = like_tweet(args.url)
-        sys.exit(0 if success else 1)
-    elif args.command == "unlike":
-        success = unlike_tweet(args.url)
-        sys.exit(0 if success else 1)
-    elif args.command == "bookmark":
-        success = bookmark_tweet(args.url)
-        sys.exit(0 if success else 1)
-    elif args.command == "unbookmark":
-        success = unbookmark_tweet(args.url)
-        sys.exit(0 if success else 1)
     
-    # 默认：发推文
     if not args.text:
         parser.print_help()
         sys.exit(1)
