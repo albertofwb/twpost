@@ -1,0 +1,2 @@
+#!/bin/bash
+cd ~/tweet && uv run python v2post.py "$@"
