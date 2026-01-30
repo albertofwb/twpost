@@ -13,6 +13,36 @@ CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
 XVFB_DISPLAY = ":99"
 
 
+def wake_screen() -> bool:
+    """Wake up the screen if it's in power saving mode.
+    
+    This helps with performance - screens in DPMS off mode can cause
+    browser operations to be slow.
+    """
+    try:
+        # Check if screen is on
+        result = subprocess.run(
+            ["xset", "q"],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if "Monitor is Off" in result.stdout:
+            print("🖥️ 屏幕未亮，正在唤醒...")
+            # Wake the screen with mouse movement and key press
+            subprocess.run(["xdotool", "mousemove_relative", "1", "1"], capture_output=True, timeout=2)
+            subprocess.run(["xdotool", "mousemove_relative", "--", "-1", "-1"], capture_output=True, timeout=2)
+            subprocess.run(["xdotool", "key", "shift"], capture_output=True, timeout=2)
+            time.sleep(0.5)
+            print("✅ 屏幕已唤醒")
+            return True
+        return True
+    except Exception as e:
+        # Don't fail if we can't check - might be headless
+        print(f"⚠️ 无法检查屏幕状态: {e}")
+        return True
+
+
 def is_port_open(port: int) -> bool:
     """Check if a port is open."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -59,6 +89,9 @@ def ensure_xvfb() -> bool:
 
 def ensure_chrome_cdp() -> bool:
     """Ensure Chrome is running with CDP enabled."""
+    # Wake screen first to ensure good performance
+    wake_screen()
+    
     if is_port_open(CDP_PORT):
         return True
 
