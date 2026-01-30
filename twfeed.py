@@ -45,20 +45,11 @@ DEFAULT_HEIGHT = 4000  # 高纵向分辨率
 PADDLE_OCR_DIR = Path.home() / "paddle-ocr"
 
 
-def run_paddle_ocr(image_path: str, text_only: bool = True) -> str | None:
-    """调用 PaddleOCR 识别图片
-    
-    Args:
-        image_path: 图片路径
-        text_only: 仅输出文字，不含坐标（节省 token）
-    """
+def run_paddle_ocr(image_path: str) -> str | None:
+    """调用 PaddleOCR 识别图片（默认纯文本输出）"""
     try:
-        cmd = ["uv", "run", "python", "ocr.py", image_path]
-        if text_only:
-            cmd.append("--text-only")
-        
         result = subprocess.run(
-            cmd,
+            ["uv", "run", "python", "ocr.py", image_path],
             cwd=PADDLE_OCR_DIR,
             capture_output=True,
             text=True,
