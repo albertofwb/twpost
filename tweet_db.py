@@ -41,6 +41,15 @@ class Tweet:
     is_bookmarked: bool = False
     liked_at: Optional[datetime] = None
     bookmarked_at: Optional[datetime] = None
+    # XHR 扩展字段
+    tweet_id: Optional[str] = None
+    reply_count: Optional[int] = None
+    quote_count: Optional[int] = None
+    user_followers: Optional[int] = None
+    user_friends: Optional[int] = None
+    user_description: Optional[str] = None
+    data_source: str = "ocr"  # 'ocr' or 'xhr'
+    raw_json: Optional[dict] = None
 
 
 def parse_count(text: str) -> Optional[int]:
@@ -168,6 +177,61 @@ def parse_ocr_to_tweets(ocr_text: str) -> list[Tweet]:
     return tweets
 
 
+def tweet_from_xhr_json(data: dict) -> Tweet:
+    """
+    从 XHR 拦截的 JSON 数据构造 Tweet 对象
+    
+    Args:
+        data: XHR 响应解析出的推文字典，支持两种格式：
+            1. 嵌套格式: {"tweet_id": "...", "user": {...}, ...}
+            2. 扁平格式: {"id": "...", "user_name": "...", "screen_name": "...", ...}
+    
+    Returns:
+        Tweet 对象
+    """
+    from dateutil import parser as date_parser
+    
+    # 兼容两种数据格式
+    user = data.get("user", {})
+    tweet_id = data.get("tweet_id") or data.get("id")
+    user_name = user.get("name", "") or data.get("user_name", "")
+    screen_name = user.get("screen_name", "") or data.get("screen_name", "")
+    user_description = user.get("description", "") or data.get("user_description", "")
+    user_followers = user.get("followers_count") or data.get("user_followers")
+    user_friends = user.get("friends_count") or data.get("user_friends")
+    
+    # 解析时间
+    created_at = None
+    if data.get("created_at"):
+        try:
+            created_at = date_parser.parse(data["created_at"])
+        except:
+            pass
+    
+    # 构造推文 URL
+    tweet_url = None
+    if tweet_id and screen_name:
+        tweet_url = f"https://x.com/{screen_name}/status/{tweet_id}"
+    
+    return Tweet(
+        tweet_id=tweet_id,
+        author=f"@{screen_name}" if screen_name else "",
+        author_name=user_name,
+        content=data.get("text", ""),
+        tweet_url=tweet_url,
+        likes=data.get("favorite_count"),
+        retweets=data.get("retweet_count"),
+        reply_count=data.get("reply_count"),
+        quote_count=data.get("quote_count"),
+        user_followers=user_followers,
+        user_friends=user_friends,
+        user_description=user_description,
+        created_at=created_at,
+        data_source="xhr",
+        raw_json=data
+    )
+
+
 def get_db_connection():
     """获取数据库连接"""
     return psycopg2.connect(**DB_CONFIG)
@@ -175,7 +239,7 @@ def get_db_connection():
 
 def save_tweets(tweets: list[Tweet]) -> int:
     """
-    保存推文到数据库
+    保存推文到数据库（支持 OCR 和 XHR 数据）
     
     Returns:
         成功保存的推文数量
@@ -191,6 +255,10 @@ def save_tweets(tweets: list[Tweet]) -> int:
         # 准备数据
         data = []
         for t in tweets:
+            # 将 raw_json 转为 JSON 字符串
+            import json
+            raw_json_str = json.dumps(t.raw_json) if t.raw_json else None
+            
             data.append((
                 t.author,
                 t.author_name,
@@ -201,16 +269,51 @@ def save_tweets(tweets: list[Tweet]) -> int:
                 t.likes,
                 t.retweets,
                 t.views,
-                t.created_at
+                t.created_at,
+                t.tweet_id,
+                t.reply_count,
+                t.quote_count,
+                t.user_followers,
+                t.user_friends,
+                t.user_description,
+                t.data_source,
+                raw_json_str
             ))
         
-        # 批量插入
-        sql = """
-            INSERT INTO tweets 
-            (author, author_name, content, tweet_url, voice_file, voice_text, likes, retweets, views, created_at)
-            VALUES %s
-        """
-        execute_values(cur, sql, data)
+        # 分离有 tweet_id 和没有 tweet_id 的数据
+        data_with_id = [d for d in data if d[10] is not None]  # d[10] = tweet_id
+        data_without_id = [d for d in data if d[10] is None]
+        
+        # 有 tweet_id 的使用 ON CONFLICT
+        if data_with_id:
+            sql_with_conflict = """
+                INSERT INTO tweets 
+                (author, author_name, content, tweet_url, voice_file, voice_text, 
+                 likes, retweets, views, created_at,
+                 tweet_id, reply_count, quote_count, user_followers, user_friends, 
+                 user_description, data_source, raw_json)
+                VALUES %s
+                ON CONFLICT (tweet_id) 
+                DO UPDATE SET
+                    likes = EXCLUDED.likes,
+                    retweets = EXCLUDED.retweets,
+                    reply_count = EXCLUDED.reply_count,
+                    quote_count = EXCLUDED.quote_count,
+                    views = EXCLUDED.views
+            """
+            execute_values(cur, sql_with_conflict, data_with_id)
+        
+        # 没有 tweet_id 的直接插入
+        if data_without_id:
+            sql_normal = """
+                INSERT INTO tweets 
+                (author, author_name, content, tweet_url, voice_file, voice_text, 
+                 likes, retweets, views, created_at,
+                 tweet_id, reply_count, quote_count, user_followers, user_friends, 
+                 user_description, data_source, raw_json)
+                VALUES %s
+            """
+            execute_values(cur, sql_normal, data_without_id)
         
         conn.commit()
         return len(data)
@@ -352,18 +455,72 @@ def mark_bookmarked(tweet_url: str = None, tweet_id: int = None, bookmarked: boo
             conn.close()
 
 
-def get_recent_tweets(limit: int = 20) -> list[dict]:
-    """获取最近保存的推文"""
+def save_xhr_tweets_from_json(json_file: str) -> int:
+    """
+    从 XHR 拦截的 JSON 文件批量保存推文
+    
+    Args:
+        json_file: JSON 文件路径（tweets_xhr_test.json 等）
+    
+    Returns:
+        成功保存的推文数量
+    """
+    import json
+    
+    try:
+        with open(json_file, 'r', encoding='utf-8') as f:
+            data_list = json.load(f)
+        
+        if not isinstance(data_list, list):
+            print(f"❌ JSON 文件格式错误，期望列表")
+            return 0
+        
+        tweets = [tweet_from_xhr_json(d) for d in data_list]
+        saved = save_tweets(tweets)
+        print(f"✅ 从 {json_file} 保存了 {saved} 条推文")
+        return saved
+        
+    except FileNotFoundError:
+        print(f"❌ 文件不存在: {json_file}")
+        return 0
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON 解析失败: {e}")
+        return 0
+
+
+def get_recent_tweets(limit: int = 20, data_source: str = None) -> list[dict]:
+    """
+    获取最近保存的推文
+    
+    Args:
+        limit: 返回数量
+        data_source: 筛选来源 ('ocr', 'xhr', None=全部)
+    
+    Returns:
+        推文列表
+    """
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("""
-            SELECT id, scraped_at, author, author_name, content, likes, retweets, views
-            FROM tweets 
-            ORDER BY scraped_at DESC 
-            LIMIT %s
-        """, (limit,))
+        
+        if data_source:
+            cur.execute("""
+                SELECT id, scraped_at, author, author_name, content, 
+                       likes, retweets, views, reply_count, data_source, tweet_id
+                FROM tweets 
+                WHERE data_source = %s
+                ORDER BY scraped_at DESC 
+                LIMIT %s
+            """, (data_source, limit))
+        else:
+            cur.execute("""
+                SELECT id, scraped_at, author, author_name, content, 
+                       likes, retweets, views, reply_count, data_source, tweet_id
+                FROM tweets 
+                ORDER BY scraped_at DESC 
+                LIMIT %s
+            """, (limit,))
         
         columns = [desc[0] for desc in cur.description]
         return [dict(zip(columns, row)) for row in cur.fetchall()]
@@ -383,9 +540,25 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == "list":
             # 列出最近的推文
-            tweets = get_recent_tweets(10)
+            data_source = sys.argv[2] if len(sys.argv) > 2 else None
+            tweets = get_recent_tweets(10, data_source)
             for t in tweets:
-                print(f"[{t['scraped_at']}] {t['author']}: {t['content'][:50]}...")
+                source = t.get('data_source', 'ocr')
+                tid = t.get('tweet_id', 'N/A')
+                print(f"[{t['scraped_at']}] [{source}] {t['author']}: {t['content'][:50]}...")
+                if source == 'xhr':
+                    print(f"  └─ ID:{tid} 💬{t.get('reply_count', 0)}")
+        
+        elif sys.argv[1] == "import-xhr":
+            # 导入 XHR JSON 数据
+            if len(sys.argv) < 3:
+                print("Usage: python tweet_db.py import-xhr <json_file>")
+                print("Example: python tweet_db.py import-xhr tweets_xhr_test.json")
+            else:
+                json_file = sys.argv[2]
+                saved = save_xhr_tweets_from_json(json_file)
+                print(f"\n📊 总计保存: {saved} 条推文")
+        
         elif sys.argv[1] == "test":
             # 测试解析
             test_ocr = """
@@ -409,4 +582,7 @@ Another test tweet content here
                 print(f"  - {t.author} ({t.author_name}): {t.content[:30]}...")
                 print(f"    likes={t.likes}, retweets={t.retweets}, views={t.views}")
     else:
-        print("Usage: python tweet_db.py [list|test]")
+        print("Usage:")
+        print("  python tweet_db.py list [ocr|xhr]     - 列出最近推文")
+        print("  python tweet_db.py import-xhr <file>  - 导入XHR JSON数据")
+        print("  python tweet_db.py test               - 测试OCR解析")
