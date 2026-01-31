@@ -5,6 +5,7 @@ description = "Post tweets via Clawdbot's browser CDP connection"
 requires-python = ">=3.10"
 dependencies = [
     "playwright>=1.40.0",
+    "psycopg2-binary>=2.9.0",
 ]
 
 [project.scripts]

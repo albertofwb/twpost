@@ -114,8 +114,19 @@ def ensure_chrome_cdp() -> bool:
 
     # Start Chrome with CDP using dedicated profile
     chrome_data_dir = Path.home() / ".chrome_bot"
+    # Use headless mode if no real display or if CHROME_HEADLESS is set
+    headless_mode = os.environ.get("CHROME_HEADLESS", "").lower() in ("1", "true", "yes")
+    chrome_args = [
+        "google-chrome",
+        f"--remote-debugging-port={CDP_PORT}",
+        f"--user-data-dir={chrome_data_dir}",
+    ]
+    if headless_mode or display == XVFB_DISPLAY:
+        chrome_args.append("--headless=new")
+        print("🔇 使用 Chrome headless 模式")
+    
     subprocess.Popen(
-        ["google-chrome", f"--remote-debugging-port={CDP_PORT}", f"--user-data-dir={chrome_data_dir}"],
+        chrome_args,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         env={**os.environ, "DISPLAY": display},
